@@ -8,6 +8,6 @@ public class TestController {
 
 	@RequestMapping("test")
 	public  String test(){
-		return "2333";
+		return "77777";
 	}
 }
