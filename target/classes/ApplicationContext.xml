@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+ xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+ xmlns:aop="http://www.springframework.org/schema/aop"
+ xmlns:context="http://www.springframework.org/schema/context"
+ xmlns:tx="http://www.springframework.org/schema/tx"
+ xsi:schemaLocation="http://www.springframework.org/schema/beans 
+                     http://www.springframework.org/schema/beans/spring-beans.xsd 
+                     http://www.springframework.org/schema/context 
+                     http://www.springframework.org/schema/context/spring-context.xsd 
+                     http://www.springframework.org/schema/tx 
+                     http://www.springframework.org/schema/tx/spring-tx.xsd 
+                     http://www.springframework.org/schema/aop 
+                     http://www.springframework.org/schema/aop/spring-aop.xsd">
+	
+	<context:component-scan base-package="service"></context:component-scan>
+	 <bean id="abstractXADataSource" class="com.atomikos.jdbc.nonxa.AtomikosNonXADataSourceBean" init-method="init"  
+          destroy-method="close" abstract="true">  
+        <property name="driverClassName" value="com.mysql.jdbc.Driver"/>  
+        <property name="poolSize" value="10" />  
+        <property name="minPoolSize" value="10"/>  
+        <property name="maxPoolSize" value="30"/>  
+        <property name="borrowConnectionTimeout" value="60"/>  
+        <property name="reapTimeout" value="20"/>  
+        <!-- 最大空闲时间 -->  
+        <property name="maxIdleTime" value="60"/>  
+        <property name="maintenanceInterval" value="60"/>  
+        <property name="loginTimeout" value="60"/>  
+        <property name="testQuery">  
+            <value>select 1</value>  
+        </property>  
+    </bean>  
+    
+   
+    <bean id="db1" class="com.atomikos.jdbc.nonxa.AtomikosNonXADataSourceBean" parent="abstractXADataSource">  
+        <!-- value只要两个数据源不同就行，随便取名 -->  
+        <property name="uniqueResourceName" value="nyxsDB1" />  
+       <property name="driverClassName">  
+            <value>com.mysql.jdbc.Driver</value>  
+        </property>  
+        <property name="url">  
+            <value>jdbc:MySQL://192.168.1.107:3306/test</value>  
+        </property>  
+        <property name="user">  
+            <value>admin</value>  
+        </property>  
+        <property name="password">  
+            <value>buyu!@#</value>  
+        </property>  
+    </bean>  
+	
+	<bean id="db2" class="com.atomikos.jdbc.nonxa.AtomikosNonXADataSourceBean" parent="abstractXADataSource">  
+        <!-- value只要两个数据源不同就行，随便取名 -->  
+        <property name="uniqueResourceName" value="nyxsDB2" />  
+       <property name="driverClassName">  
+            <value>com.mysql.jdbc.Driver</value>  
+        </property>  
+        <property name="url">  
+            <value>jdbc:MySQL://192.168.1.107:3306/log</value>  
+        </property>  
+        <property name="user">  
+            <value>admin</value>  
+        </property>  
+        <property name="password">  
+            <value>buyu!@#</value>  
+        </property>  
+    </bean>  
+
+	<!-- dao mapper -->
+	<bean id="qasqlSessionFactory" class="org.mybatis.spring.SqlSessionFactoryBean">  
+        <property name="dataSource" ref="db1" />  
+        <property name="mapperLocations" value="classpath*:dao/user/UserDao.xml" />  
+    </bean>  
+  
+    <bean id="devsqlSessionFactory" class="org.mybatis.spring.SqlSessionFactoryBean">  
+        <property name="dataSource" ref="db2" />  
+        <property name="mapperLocations" value="classpath*:dao/log/LogDao.xml" />  
+    </bean>  
+
+	
+	
+    
+     <bean class="org.mybatis.spring.mapper.MapperScannerConfigurer">  
+        <property name="basePackage" value="dao.user"/>  
+        <property name="sqlSessionFactoryBeanName" value="qasqlSessionFactory" />  
+    </bean>  
+  
+    <bean class="org.mybatis.spring.mapper.MapperScannerConfigurer">  
+        <property name="basePackage" value="dao.log"/>  
+        <property name="sqlSessionFactoryBeanName" value="devsqlSessionFactory" />  
+    </bean>   
+    
+    <bean id="userTransactionService" class="com.atomikos.icatch.config.UserTransactionServiceImp" init-method="init" destroy-method="shutdownForce">
+        <constructor-arg>
+            <props>
+                <prop key="com.atomikos.icatch.service">com.atomikos.icatch.standalone.UserTransactionServiceFactory</prop>
+            </props>
+        </constructor-arg>
+    </bean>
+    
+     <!-- Atomikos分布式事务实现配置 -->
+    <bean id="atomikosTransactionManager" class="com.atomikos.icatch.jta.UserTransactionManager"
+          init-method="init" destroy-method="close">
+        <property name="forceShutdown" value="false"/>
+    </bean>
+ 
+    <bean id="atomikosUserTransaction" class="com.atomikos.icatch.jta.UserTransactionImp" depends-on="userTransactionService">
+        <property name="transactionTimeout" value="300"/>
+    </bean>
+ 
+    <bean id="jtaTransactionManager"
+          class="org.springframework.transaction.jta.JtaTransactionManager">
+        <property name="transactionManager" ref="atomikosTransactionManager"/>
+        <property name="userTransaction" ref="atomikosUserTransaction"/>
+    </bean>
+ 
+ 
+    
+    
+    
+	<!-- JTA事务传播特性 -->
+    <tx:advice id="txAdviceJTA" transaction-manager="jtaTransactionManager">
+        <tx:attributes>
+        	<tx:method name="save*" isolation="DEFAULT" propagation="REQUIRED" rollback-for="Exception"/>
+        	<tx:method name="add*" isolation="DEFAULT" propagation="REQUIRED" rollback-for="Exception"/>
+            <tx:method name="create*" isolation="DEFAULT" propagation="REQUIRED" rollback-for="Exception"/>
+            <tx:method name="insert*" isolation="DEFAULT" propagation="REQUIRED" rollback-for="Exception"/>
+            <tx:method name="del*" isolation="DEFAULT" propagation="REQUIRED" rollback-for="Exception"/>
+            <tx:method name="update*" isolation="DEFAULT" propagation="REQUIRED" rollback-for="Exception"/>
+        	<tx:method name="*" read-only="true"/> 
+        </tx:attributes>
+    </tx:advice>
+    
+    <aop:config>
+        <aop:advisor pointcut="execution(* service..*(..))"   advice-ref="txAdviceJTA" />
+    </aop:config>
+</beans>  
